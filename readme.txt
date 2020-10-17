@@ -7,6 +7,12 @@ Install:
 # cp systemd/three-finger-drag.service /usr/lib/systemd/system
 # systemctl daemon-reload
 
+Before run:
+
+You need to enable sending input events:
+$ gsettings set org.gnome.desktop.peripherals.touchpad send-events enabled
+or do the same for your DE
+
 Modes supported:
 
 1. User:
