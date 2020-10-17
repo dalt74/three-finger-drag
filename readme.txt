@@ -13,10 +13,16 @@ Modes supported:
    works inside user session
    Requires proper permissions to access /dev/input/event*
    Uses ydotool daemon or xdotool to perform actions
-   When using ydotool backend requires to access /tm/.ydotool_socket
+   When using ydotool backend requires to access /tmp/.ydotool_socket
 
-   Activate mode:
-   start /usr/bin/three-finger-drag in autostart
+   How to use user mode:
+   # usermod -a -G input <myusername>
+   start
+      /usr/bin/three-finger-drag
+   in yout DE autostart.
+   If using ydotool don't forget to make socket and device
+   user-accessible with console.perms, udev or other your preferred
+   method
 
 2. System:
    works as systemd service three-finger-scroll.service
@@ -24,5 +30,7 @@ Modes supported:
    You may specify your touchpad device in /etc/sysconfig/touchdev:
    TOUCHPAD_DEVICE_NAME=mytouchpad
 
-   Activate mode:
+   How to use system mode:
    # systemctl enable three-finger-drag
+   # systemctl start three-finger-drag
+   Maybe you'll need logout/login
