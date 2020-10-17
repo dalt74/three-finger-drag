@@ -1,3 +1,8 @@
+#
+# Copyright (c) 2020
+#
+# The software may be redistributed under GPLv2 or later terms
+#
 import subprocess
 import sys
 import threading
@@ -11,9 +16,33 @@ MODE_READY = 0
 MODE_ACTING = 1
 MODE_WAITING = 2
 
+
+class Backend(object):
+    def mousedown(self):
+        raise NotImplementedError()
+
+    def mouseup(self):
+        raise NotImplementedError()
+
+    def mousemove(self, x, y):
+        raise NotImplementedError()
+
+
+class X11Backend(Backend):
+    def mousedown(self):
+        execute("xdotool mousedown 1")
+
+    def mouseup(self):
+        execute("xdotool mouseup 1")
+
+    def mousemove(self, x, y):
+        execute("xdotool mousemove_relative -- %s %s" % (x, y))
+
+
 class GestureHandler(object):
-    def __init__(self, scale=1, sleep_interval=1.2):
+    def __init__(self, backend, scale=1, sleep_interval=1.2):
         self.lock = threading.RLock()
+        self.backend = backend
         self.mode = MODE_READY
         self.scale = scale
         self.serial = 0
@@ -34,18 +63,18 @@ class GestureHandler(object):
         with self.lock:
             dx = x * self.scale
             dy = y * self.scale
-            execute("xdotool mousemove_relative -- %s %s" % (dx, dy))
+            self.backend.mousemove(dx, dy)
 
     def _end_activity(self):
         with self.lock:
-            execute("xdotool mouseup 1")
+            self.backend.mouseup()
             self.mode = MODE_READY
 
     def _start_activity(self):
         with self.lock:
             self.serial += 1
             if self.mode != MODE_WAITING:
-                execute("xdotool mousedown 1")
+                self.backend.mousedown()
             self.mode = MODE_ACTING
 
     def _commit(self, serial):
@@ -144,5 +173,7 @@ if device_info is None:
     exit(1)
 
 print("Found device: %s => %s" % device_info)
-handler = GestureHandler()
+
+backend = X11Backend()
+handler = GestureHandler(backend)
 run_loop(device_info[0], handler)

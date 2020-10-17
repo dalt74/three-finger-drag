@@ -1,9 +1,18 @@
 Implement three-finger-drag and three-finger-select for a
 libinput-capable environments like GNOME/KDE.
 
+WORK IN PROGRESS ON EARLY STAGE!!!
+
 Presetup:
 
-1. Install xdotool / ydotool:
+$ sudo dnf install xdotool
+$ sudo usermod -a -G input <myusername>
+$ gsettings set org.gnome.desktop.peripherals.touchpad send-events enabled
+$ sudo rebbot
+...
+$ python scoll-handler.py
+
+1. Install xdotool:
    # dnf install xdotool ydotool
 
 2. Make sure you can access /dev/input/event* from your
@@ -24,3 +33,5 @@ What scroll-handler will do?
 1. It scans input devices
 2. Selects first device that has "touchpad" within it's name
 3. Uses the device to emulate left mouse click/drag on three-finger gestures
+
+Note on ydotool support: work in progress, just keep in touch!
