@@ -1,8 +1,11 @@
+#!/usr/bin/env python3
 #
 # Copyright (c) 2020
 #
 # The software may be redistributed under GPLv2 or later terms
 #
+import os.path
+import socket
 import subprocess
 import sys
 import threading
@@ -10,7 +13,16 @@ import time
 
 
 pattern = "touchpad"
-"""Pattern for device to be tracked"""
+
+xdo_opt = "--use-xdotool"
+ydo_opt = "--use-ydotool"
+
+options = [
+    (ydo_opt, "force using ydotool backend via ydotool daemon"),
+    (xdo_opt, "force using xdotool (user session only)"),
+    ("--help", "this message"),
+]
+
 
 MODE_READY = 0
 MODE_ACTING = 1
@@ -36,15 +48,43 @@ class X11Backend(Backend):
         execute("xdotool mouseup 1")
 
     def mousemove(self, x, y):
+        x = int(x)
+        y = int(y)
         execute("xdotool mousemove_relative -- %s %s" % (x, y))
 
 
+class YBackend(Backend):
+    def __init__(self):
+        self.socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.socket.connect("/tmp/.ydotool_socket")
+
+    def mousedown(self):
+        self._send(b"\001\000\020\001\001\000\000\000")
+
+    def mouseup(self):
+        self._send(b"\001\000\020\001\000\000\000\000")
+
+    def mousemove(self, x, y):
+        x = int(x)
+        y = int(y)
+        data = b''
+        if x != 0:
+            data = data + b"\002\000\000\000" + x.to_bytes(4, 'little', signed=True)
+        if y != 0:
+            data = data + b"\002\000\001\000" + y.to_bytes(4, 'little', signed=True)
+        if x != 0 or y != 0:
+            self._send(data)
+
+    def _send(self, data):
+        self.socket.send(data)
+        self.socket.send(b"\000\000\000\000\000\000\000\000")
+
+
 class GestureHandler(object):
-    def __init__(self, backend, scale=1, sleep_interval=1.2):
+    def __init__(self, backend, sleep_interval=1.0):
         self.lock = threading.RLock()
         self.backend = backend
         self.mode = MODE_READY
-        self.scale = scale
         self.serial = 0
         self.double_lag = sleep_interval
 
@@ -61,9 +101,7 @@ class GestureHandler(object):
 
     def handle(self, x, y):
         with self.lock:
-            dx = x * self.scale
-            dy = y * self.scale
-            self.backend.mousemove(dx, dy)
+            self.backend.mousemove(x, y)
 
     def _end_activity(self):
         with self.lock:
@@ -92,9 +130,11 @@ def execute(cmdline):
         print("Error: %s" % err)
 
 
-def run_loop(device, handler):
+def run_loop(handler, device):
+    cmd = "stdbuf -oL -- libinput debug-events %s" % device
+    print("Run: %s" % cmd)
     with subprocess.Popen(
-        ("stdbuf -oL -- libinput debug-events %s" % device).split(),
+        cmd.split(),
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
         bufsize=0
@@ -105,23 +145,25 @@ def run_loop(device, handler):
                 break
             except subprocess.TimeoutExpired:
                 data = child.stdout.readline().decode("utf-8").replace("\n", "")
+            if not data:
+                continue
             parts = data.split("\t")
-            action = parts[0].split()
-            if action[1] == "POINTER_AXIS" or action[1] == "POINTER_MOTION":
-                handler.end(True)
-            elif action[1].startswith("GESTURE_SWIPE"):
-                fingers = parts[1][0:1]
-                if not data:
-                    continue
-                elif action[1] == "GESTURE_SWIPE_BEGIN" and fingers == "3":
-                    handler.start()
-                elif action[1] == "GESTURE_SWIPE_END" and fingers == "3":
-                    handler.end()
-                elif action[1] == "GESTURE_SWIPE_UPDATE" and fingers == "3":
-                    remn = parts[1][1:].strip().split("/")
-                    x = remn[0]
-                    y = remn[1].split()[0]
-                    handler.handle(float(x), float(y))
+            if len(parts) > 0:
+                action = parts[0].split()
+                if len(action) > 1:
+                    if action[1].startswith("GESTURE_SWIPE"):
+                        fingers = parts[1][0:1]
+                        if action[1] == "GESTURE_SWIPE_BEGIN" and fingers == "3":
+                            handler.start()
+                        elif action[1] == "GESTURE_SWIPE_END" and fingers == "3":
+                            handler.end()
+                        elif action[1] == "GESTURE_SWIPE_UPDATE" and fingers == "3":
+                            remn = parts[1][1:].strip().split("/")
+                            x = remn[0]
+                            y = remn[1].split()[0]
+                            handler.handle(float(x), float(y))
+                        continue
+            handler.end(True)
 
 
 def list_devices():
@@ -155,7 +197,7 @@ def list_devices():
     return devices
 
 
-def find_device_file(device_list, pattern):
+def find_device(device_list, pattern):
     for dev in device_list:
         name = dev[1].lower()
         if name.find(pattern.lower()) >= 0:
@@ -163,17 +205,53 @@ def find_device_file(device_list, pattern):
     return None
 
 
+def create_backend():
+    if xdo_opt in sys.argv:
+        backend = X11Backend()
+        print("Using XDOTOOL backend")
+        return backend
+    try:
+        backend = YBackend()
+        print("Using YDOTOOL backend")
+        return backend
+    except:
+        if ydo_opt in sys.argv:
+            print("Can't start ydotool backend, exit")
+            exit(1)
+        print("Fallback to XDOTOOL backend")
+        return X11Backend()
+
+
+opts = []
+user_opts = [x for x in sys.argv]
+user_opts.pop(0)
+allowed_opts = [x[0] for x in options]
+for x in user_opts:
+    if x not in allowed_opts:
+        opts.append(x)
+
+if "--help" in sys.argv or "-h" in sys.argv or "-?" in sys.argv or len(opts) > 1:
+    print("Usage:")
+    print("    three-finger-drag <options> [<device_name>]")
+    print("Options:")
+    for opt in options:
+        print("%s -- %s" % opt)
+    print("If no backend enforced try ydotool and fallback to xdotool if failed.")
+    print("If no device name specified then use firsy device matching \"*touchpad*\"")
+    exit(0)
+
+if opts:
+    pattern = opts[0]
 devices = list_devices()
-device_info = find_device_file(devices, pattern)
+device_info = find_device(devices, pattern)
 if device_info is None:
-    print("Unable to find gesturable device. The devices known are:")
+    print("Unable to find gesturable device for \"%s\". The devices known are:" % pattern)
     for device_info in devices:
         print("%s => %s" % device_info)
     print("Aborting")
     exit(1)
-
 print("Found device: %s => %s" % device_info)
 
-backend = X11Backend()
+backend = create_backend()
 handler = GestureHandler(backend)
-run_loop(device_info[0], handler)
+run_loop(handler, device_info[0])

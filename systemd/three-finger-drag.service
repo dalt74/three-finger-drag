@@ -1,0 +1,16 @@
+[Unit]
+Description=Three-finger-scroll daemon
+DefaultDependencies=no
+After=ydotool.service
+Requires=ydotool.service
+
+[Service]
+EnvironmentFile=-/etc/sysconfig/touchdev
+Type=simple
+NotifyAccess=main
+ExecStart=/usr/bin/three-finger-drag --use-ydotool $TOUCHPAD_DEVICE_NAME
+KillMode=proccess
+Restart=never
+
+[Install]
+WantedBy=multi-user.target

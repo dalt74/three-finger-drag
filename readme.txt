@@ -1,37 +1,28 @@
 Implement three-finger-drag and three-finger-select for a
 libinput-capable environments like GNOME/KDE.
 
-WORK IN PROGRESS ON EARLY STAGE!!!
+Install:
 
-Presetup:
+# cp src/three-finger-drage /usr/bin
+# cp systemd/three-finger-drag.service /usr/lib/systemd/system
+# systemctl daemon-reload
 
-$ sudo dnf install xdotool
-$ sudo usermod -a -G input <myusername>
-$ gsettings set org.gnome.desktop.peripherals.touchpad send-events enabled
-$ sudo rebbot
-...
-$ python scoll-handler.py
+Modes supported:
 
-1. Install xdotool:
-   # dnf install xdotool ydotool
+1. User:
+   works inside user session
+   Requires proper permissions to access /dev/input/event*
+   Uses ydotool daemon or xdotool to perform actions
+   When using ydotool backend requires to access /tm/.ydotool_socket
 
-2. Make sure you can access /dev/input/event* from your
-   user context. There are many ways to do it: console.perms,
-   udev, others. I just added my account into "input" group:
-   # usermod -a -G input viking
+   Activate mode:
+   start /usr/bin/three-finger-drag in autostart
 
-3. Enable libinput events. For the GNOME environment it can
-   be performed with command line:
-   $ gsettings set org.gnome.desktop.peripherals.touchpad send-events enabled
-   or through dconf-editor UI
+2. System:
+   works as systemd service three-finger-scroll.service
+   Explicit use ydotool, requires ydotool.service to be running
+   You may specify your touchpad device in /etc/sysconfig/touchdev:
+   TOUCHPAD_DEVICE_NAME=mytouchpad
 
-4. Run scroll-handler:
-   $ scroll-handler.py
-
-What scroll-handler will do?
-
-1. It scans input devices
-2. Selects first device that has "touchpad" within it's name
-3. Uses the device to emulate left mouse click/drag on three-finger gestures
-
-Note on ydotool support: work in progress, just keep in touch!
+   Activate mode:
+   # systemctl enable three-finger-drag
