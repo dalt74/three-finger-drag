@@ -48,8 +48,6 @@ class X11Backend(Backend):
         execute("xdotool mouseup 1")
 
     def mousemove(self, x, y):
-        x = int(x)
-        y = int(y)
         execute("xdotool mousemove_relative -- %s %s" % (x, y))
 
 
@@ -65,8 +63,6 @@ class YBackend(Backend):
         self._send(b"\001\000\020\001\000\000\000\000")
 
     def mousemove(self, x, y):
-        x = int(x)
-        y = int(y)
         data = b''
         if x != 0:
             data = data + b"\002\000\000\000" + x.to_bytes(4, 'little', signed=True)
@@ -80,6 +76,12 @@ class YBackend(Backend):
         self.socket.send(b"\000\000\000\000\000\000\000\000")
 
 
+def aint(v):
+    va = abs(v)
+    sg = int(0 if v == 0 else v / va)
+    return sg * int(va)
+
+
 class GestureHandler(object):
     def __init__(self, backend, sleep_interval=1.0):
         self.lock = threading.RLock()
@@ -87,6 +89,8 @@ class GestureHandler(object):
         self.mode = MODE_READY
         self.serial = 0
         self.double_lag = sleep_interval
+        self.acc_x = 0.0
+        self.acc_y = 0.0
 
     def start(self):
         with self.lock:
@@ -101,7 +105,13 @@ class GestureHandler(object):
 
     def handle(self, x, y):
         with self.lock:
-            self.backend.mousemove(x, y)
+            self.acc_x = self.acc_x + x
+            self.acc_y = self.acc_y + y
+            ux = aint(self.acc_x)
+            uy = aint(self.acc_y)
+            self.acc_x -= ux
+            self.acc_y -= uy
+            self.backend.mousemove(ux, uy)
 
     def _end_activity(self):
         with self.lock:
@@ -111,7 +121,7 @@ class GestureHandler(object):
     def _start_activity(self):
         with self.lock:
             self.serial += 1
-            if self.mode != MODE_WAITING:
+            if self.mode == MODE_READY:
                 self.backend.mousedown()
             self.mode = MODE_ACTING
 
@@ -122,6 +132,13 @@ class GestureHandler(object):
             if self.mode == MODE_WAITING and self.serial == serial:
                 self._end_activity()
 
+    def hadle_key(self):
+        with self.lock:
+            if self.mode == MODE_WAITING:
+                self._end_activity()
+                return False
+            return True
+
 
 def execute(cmdline):
     try:
@@ -131,8 +148,9 @@ def execute(cmdline):
 
 
 def run_loop(handler, device):
-    cmd = "stdbuf -oL -- libinput debug-events %s" % device
+    cmd = "stdbuf -oL -- libinput debug-events"
     print("Run: %s" % cmd)
+    touchname = os.path.basename(device)
     with subprocess.Popen(
         cmd.split(),
         stdout=subprocess.PIPE,
@@ -151,17 +169,23 @@ def run_loop(handler, device):
             if len(parts) > 0:
                 action = parts[0].split()
                 if len(action) > 1:
-                    if action[1].startswith("GESTURE_SWIPE"):
-                        fingers = parts[1][0:1]
-                        if action[1] == "GESTURE_SWIPE_BEGIN" and fingers == "3":
-                            handler.start()
-                        elif action[1] == "GESTURE_SWIPE_END" and fingers == "3":
-                            handler.end()
-                        elif action[1] == "GESTURE_SWIPE_UPDATE" and fingers == "3":
-                            remn = parts[1][1:].strip().split("/")
-                            x = remn[0]
-                            y = remn[1].split()[0]
-                            handler.handle(float(x), float(y))
+                    if action[0] == touchname:
+                        if action[1].startswith("GESTURE_SWIPE"):
+                            fingers = parts[1][0:1]
+                            if action[1] == "GESTURE_SWIPE_BEGIN" and fingers == "3":
+                                handler.start()
+                            elif action[1] == "GESTURE_SWIPE_END" and fingers == "3":
+                                handler.end()
+                            elif action[1] == "GESTURE_SWIPE_UPDATE" and fingers == "3":
+                                remn = parts[1][1:].strip().split("/")
+                                x = remn[0]
+                                y = remn[1].split()[0]
+                                handler.handle(float(x), float(y))
+                            continue
+                    elif action[1].startswith("KEYB"):
+                        if handler.hadle_key():
+                            continue
+                    else:
                         continue
             handler.end(True)
 
