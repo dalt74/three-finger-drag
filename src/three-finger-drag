@@ -83,7 +83,7 @@ def aint(v):
 
 
 class GestureHandler(object):
-    def __init__(self, backend, sleep_interval=1.0):
+    def __init__(self, backend, sleep_interval=1.5):
         self.lock = threading.RLock()
         self.backend = backend
         self.mode = MODE_READY
