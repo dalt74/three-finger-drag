@@ -134,7 +134,7 @@ class GestureHandler(object):
 
     def hadle_key(self):
         with self.lock:
-            if self.mode == MODE_WAITING:
+            if self.mode != MODE_READY:
                 self._end_activity()
                 return False
             return True
